@@ -341,6 +341,7 @@ def main() -> None:
         send_telegram_messages(telegram_token, telegram_chat_id, messages)
     elif is_last_run and telegram_token and telegram_chat_id:
         date_str = datetime.now(timezone.utc).strftime('%d %b %Y')
+        logging.info('Sending end of day summary digest')
         send_telegram_messages(
             telegram_token,
             telegram_chat_id,
