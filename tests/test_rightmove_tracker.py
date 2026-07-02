@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 from bs4 import BeautifulSoup
 
 from rightmove_tracker import (
@@ -9,12 +10,48 @@ from rightmove_tracker import (
     _build_summary_messages,
     _find_total_results,
     _parse_card,
+    _request_with_retry,
     fetch_properties,
     format_price,
     load_state,
     save_state,
     send_telegram_messages,
 )
+
+
+class TestRequestWithRetry:
+    @patch('rightmove_tracker.time.sleep')
+    def test_succeeds_on_first_try(self, mock_sleep: MagicMock) -> None:
+        session = MagicMock()
+        resp = MagicMock()
+        session.get.return_value = resp
+        result = _request_with_retry(session, 'https://rm.co.uk/search')
+        assert result == resp
+        session.get.assert_called_once_with('https://rm.co.uk/search')
+        mock_sleep.assert_not_called()
+
+    @patch('rightmove_tracker.time.sleep')
+    def test_retries_then_succeeds(self, mock_sleep: MagicMock) -> None:
+        session = MagicMock()
+        fail_resp = MagicMock()
+        fail_resp.raise_for_status.side_effect = requests.RequestException('timeout')
+        ok_resp = MagicMock()
+        session.get.side_effect = [fail_resp, fail_resp, ok_resp]
+        result = _request_with_retry(session, 'https://rm.co.uk/search')
+        assert result == ok_resp
+        assert session.get.call_count == 3
+        assert mock_sleep.call_count == 2
+
+    @patch('rightmove_tracker.time.sleep')
+    def test_exhausts_retries(self, mock_sleep: MagicMock) -> None:
+        session = MagicMock()
+        fail_resp = MagicMock()
+        fail_resp.raise_for_status.side_effect = requests.RequestException('server error')
+        session.get.return_value = fail_resp
+        with pytest.raises(requests.RequestException):
+            _request_with_retry(session, 'https://rm.co.uk/search', max_retries=2)
+        assert session.get.call_count == 3
+        assert mock_sleep.call_count == 2
 
 
 class TestFormatPrice:
@@ -241,16 +278,46 @@ class TestLoadState:
     def test_returns_prices(self, mock_get: MagicMock) -> None:
         mock_resp = MagicMock()
         mock_resp.json.return_value = [
-            {'property_id': '111', 'price': 250000, 'first_seen_price': 250000},
-            {'property_id': '222', 'price': 300000, 'first_seen_price': 320000},
+            {
+                'property_id': '111',
+                'price': 250000,
+                'first_seen_price': 250000,
+                'address': '1 Main St',
+                'url': 'https://rm.co.uk/p/111',
+                'bedrooms': 3,
+                'property_type': 'Detached',
+            },
+            {
+                'property_id': '222',
+                'price': 300000,
+                'first_seen_price': 320000,
+                'address': '2 High Rd',
+                'url': 'https://rm.co.uk/p/222',
+                'bedrooms': 2,
+                'property_type': 'Flat',
+            },
         ]
         mock_get.return_value = mock_resp
         with patch('rightmove_tracker.SUPABASE_URL', 'https://db.supabase.co'):
             with patch('rightmove_tracker.SUPABASE_SERVICE_KEY', 'test-key'):
                 state = load_state()
         assert state == {
-            '111': {'price': 250000, 'first_seen_price': 250000},
-            '222': {'price': 300000, 'first_seen_price': 320000},
+            '111': {
+                'price': 250000,
+                'first_seen_price': 250000,
+                'address': '1 Main St',
+                'url': 'https://rm.co.uk/p/111',
+                'bedrooms': 3,
+                'property_type': 'Detached',
+            },
+            '222': {
+                'price': 300000,
+                'first_seen_price': 320000,
+                'address': '2 High Rd',
+                'url': 'https://rm.co.uk/p/222',
+                'bedrooms': 2,
+                'property_type': 'Flat',
+            },
         }
 
     @patch('rightmove_tracker.requests.get')
@@ -394,7 +461,28 @@ class TestBuildSummaryMessages:
         msgs = _build_summary_messages([], [(p, 0)])
         assert '?%' in msgs[0]
 
+    def test_removed_properties(self) -> None:
+        props = [Property('1', 'https://rm.co.uk/p/1', '1 Gone Rd', 150000, 1, 'Flat')]
+        msgs = _build_summary_messages([], [], props)
+        assert len(msgs) == 1
+        assert 'Removed Properties (1)' in msgs[0]
+        assert '1 Gone Rd' in msgs[0]
+
+    def test_combined_messages(self) -> None:
+        new_p = Property('1', 'https://rm.co.uk/p/1', 'New', 200000, 2, 'Flat')
+        red_p = Property('2', 'https://rm.co.uk/p/2', 'Reduced', 150000, 3, 'Semi')
+        rem_p = Property('3', 'https://rm.co.uk/p/3', 'Removed', 300000, 4, 'Detached')
+        msgs = _build_summary_messages([new_p], [(red_p, 200000)], [rem_p])
+        combined = '\n'.join(msgs)
+        assert 'New Properties (1)' in combined
+        assert 'Price Reductions (1)' in combined
+        assert 'Removed Properties (1)' in combined
+
     def test_no_changes_returns_empty(self) -> None:
+        assert _build_summary_messages([], []) == []
+        assert _build_summary_messages([], [], []) == []
+
+    def test_removed_none_by_default(self) -> None:
         assert _build_summary_messages([], []) == []
 
 
