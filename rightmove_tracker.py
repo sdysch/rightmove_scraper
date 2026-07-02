@@ -2,6 +2,7 @@ import logging
 import math
 import os
 import re
+import time
 from datetime import datetime, timezone
 
 import requests
@@ -100,6 +101,32 @@ def _parse_results(soup: BeautifulSoup) -> dict[str, Property]:
     return properties
 
 
+def _request_with_retry(
+    session: requests.Session,
+    url: str,
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+) -> requests.Response:
+    """GET *url* with exponential backoff retry on failures."""
+    for attempt in range(max_retries + 1):
+        try:
+            resp = session.get(url)
+            resp.raise_for_status()
+            return resp
+        except requests.RequestException:
+            if attempt < max_retries:
+                delay = base_delay * (2**attempt)
+                logger.warning(
+                    'Request failed (attempt %d/%d). Retrying in %.0fs...',
+                    attempt + 1,
+                    max_retries + 1,
+                    delay,
+                )
+                time.sleep(delay)
+            else:
+                raise
+
+
 def fetch_properties(search_url: str) -> dict[str, Property]:
     """Scrape all pages of a Rightmove search and return property_id -> Property."""
     session = requests.Session()
@@ -108,8 +135,7 @@ def fetch_properties(search_url: str) -> dict[str, Property]:
         '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     )
 
-    resp = session.get(search_url)
-    resp.raise_for_status()
+    resp = _request_with_retry(session, search_url)
     soup = BeautifulSoup(resp.content, 'html.parser')
 
     total = _find_total_results(soup)
@@ -121,7 +147,7 @@ def fetch_properties(search_url: str) -> dict[str, Property]:
 
     for page in range(1, pages):
         url = f'{search_url}&index={page * 24}'
-        resp = session.get(url)
+        resp = _request_with_retry(session, url)
         soup = BeautifulSoup(resp.content, 'html.parser')
         properties.update(_parse_results(soup))
 
