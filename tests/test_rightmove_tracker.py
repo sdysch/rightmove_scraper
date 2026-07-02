@@ -240,14 +240,17 @@ class TestLoadState:
     def test_returns_prices(self, mock_get: MagicMock) -> None:
         mock_resp = MagicMock()
         mock_resp.json.return_value = [
-            {'property_id': '111', 'price': 250000},
-            {'property_id': '222', 'price': 300000},
+            {'property_id': '111', 'price': 250000, 'first_seen_price': 250000},
+            {'property_id': '222', 'price': 300000, 'first_seen_price': 320000},
         ]
         mock_get.return_value = mock_resp
         with patch('rightmove_tracker.SUPABASE_URL', 'https://db.supabase.co'):
             with patch('rightmove_tracker.SUPABASE_SERVICE_KEY', 'test-key'):
                 state = load_state()
-        assert state == {'111': 250000, '222': 300000}
+        assert state == {
+            '111': {'price': 250000, 'first_seen_price': 250000},
+            '222': {'price': 300000, 'first_seen_price': 320000},
+        }
 
     @patch('rightmove_tracker.requests.get')
     def test_http_error_returns_empty(self, mock_get: MagicMock) -> None:
@@ -287,9 +290,13 @@ class TestSaveState:
     def test_sends_rows(self, mock_post: MagicMock) -> None:
         mock_post.return_value.ok = True
         props = self._make_props()
+        state = {
+            '111': {'price': 250000, 'first_seen_price': 250000},
+            '222': {'price': 300000, 'first_seen_price': 320000},
+        }
         with patch('rightmove_tracker.SUPABASE_URL', 'https://db.supabase.co'):
             with patch('rightmove_tracker.SUPABASE_SERVICE_KEY', 'test-key'):
-                save_state({'111': 250000, '222': 300000}, props)
+                save_state(state, props)
 
         mock_post.assert_called_once()
         args, kwargs = mock_post.call_args
@@ -298,6 +305,7 @@ class TestSaveState:
         assert len(rows) == 2
         assert rows[0]['property_id'] == '111'
         assert rows[0]['price'] == 250000
+        assert rows[0]['first_seen_price'] == 250000
         assert rows[0]['address'] == 'Addr 1'
         assert rows[0]['bedrooms'] == 3
         assert rows[0]['property_type'] == 'Detached'
@@ -315,7 +323,7 @@ class TestSaveState:
         props = self._make_props()
         with patch('rightmove_tracker.SUPABASE_URL', 'https://db.supabase.co'):
             with patch('rightmove_tracker.SUPABASE_SERVICE_KEY', 'test-key'):
-                save_state({'111': 250000}, props)
+                save_state({'111': {'price': 250000, 'first_seen_price': 250000}}, props)
         assert 'Failed to save state' in caplog.text
         assert '500' in caplog.text
 
@@ -323,7 +331,7 @@ class TestSaveState:
         props = self._make_props()
         with patch('rightmove_tracker.SUPABASE_URL', ''):
             with patch('rightmove_tracker.SUPABASE_SERVICE_KEY', ''):
-                save_state({'111': 250000}, props)
+                save_state({'111': {'price': 250000, 'first_seen_price': 250000}}, props)
         assert 'Supabase not configured' in caplog.text
 
     @patch('rightmove_tracker.requests.post')
@@ -332,7 +340,7 @@ class TestSaveState:
         props = self._make_props()
         with patch('rightmove_tracker.SUPABASE_URL', 'https://db.supabase.co'):
             with patch('rightmove_tracker.SUPABASE_SERVICE_KEY', 'test-key'):
-                save_state({'111': 250000}, props)
+                save_state({'111': {'price': 250000, 'first_seen_price': 250000}}, props)
         assert 'Failed to save state' in caplog.text
         assert 'DNS resolution failed' in caplog.text
 
@@ -340,7 +348,7 @@ class TestSaveState:
         props = self._make_props()
         with patch('rightmove_tracker.SUPABASE_URL', 'my_url'):
             with patch('rightmove_tracker.SUPABASE_SERVICE_KEY', 'test-key'):
-                save_state({'111': 250000}, props)
+                save_state({'111': {'price': 250000, 'first_seen_price': 250000}}, props)
         assert 'Supabase not configured' in caplog.text
 
 

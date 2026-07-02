@@ -1,6 +1,7 @@
 create table if not exists property_state (
   property_id text primary key,
   price integer not null,
+  first_seen_price integer not null,
   address text not null default '',
   url text not null default '',
   bedrooms integer not null default 0,

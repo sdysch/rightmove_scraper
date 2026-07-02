@@ -140,25 +140,38 @@ def _supabase_headers() -> dict[str, str]:
     }
 
 
-def load_state() -> dict[str, int]:
-    """Load previously seen property prices from Supabase."""
+def load_state() -> dict[str, dict[str, int]]:
+    """Load previously seen property data from Supabase.
+
+    Returns a dict mapping property_id to a dict with ``price`` and
+    ``first_seen_price``.
+    """
     if not _supabase_configured():
         return {}
     try:
         resp = requests.get(
             f'{SUPABASE_URL}/rest/v1/{STATE_TABLE}',
             headers=_supabase_headers(),
-            params={'select': 'property_id,price'},
+            params={'select': 'property_id,price,first_seen_price'},
         )
         resp.raise_for_status()
-        return {row['property_id']: row['price'] for row in resp.json()}
+        return {
+            row['property_id']: {
+                'price': row['price'],
+                'first_seen_price': row['first_seen_price'],
+            }
+            for row in resp.json()
+        }
     except Exception as e:
         logger.error('Failed to load state: %s', e)
         return {}
 
 
-def save_state(state: dict[str, int], properties: dict[str, Property]) -> None:
-    """Upsert current property prices and metadata to Supabase."""
+def save_state(state: dict[str, dict[str, int]], properties: dict[str, Property]) -> None:
+    """Upsert current property data and metadata to Supabase.
+
+    *state* maps property_id to a dict with ``price`` and ``first_seen_price``.
+    """
     if not _supabase_configured():
         logger.warning('Supabase not configured, skipping state save')
         return
@@ -166,14 +179,15 @@ def save_state(state: dict[str, int], properties: dict[str, Property]) -> None:
     rows = [
         {
             'property_id': pid,
-            'price': price,
+            'price': s['price'],
+            'first_seen_price': s['first_seen_price'],
             'address': properties[pid].address,
             'url': properties[pid].url,
             'bedrooms': properties[pid].bedrooms,
             'property_type': properties[pid].property_type,
             'updated_at': now,
         }
-        for pid, price in state.items()
+        for pid, s in state.items()
     ]
     try:
         resp = requests.post(
@@ -224,10 +238,18 @@ def main() -> None:
 
     is_first_run = not old_state
     messages: list[str] = []
-    new_state: dict[str, int] = {}
+    new_state: dict[str, dict[str, int]] = {}
 
     for prop_id, prop in current_properties.items():
-        new_state[prop_id] = prop.price
+        if prop_id in old_state:
+            first_seen_price = old_state[prop_id]['first_seen_price']
+        else:
+            first_seen_price = prop.price
+
+        new_state[prop_id] = {
+            'price': prop.price,
+            'first_seen_price': first_seen_price,
+        }
 
         summary_parts = []
         if prop.bedrooms:
@@ -243,12 +265,12 @@ def main() -> None:
                 f'{format_price(prop.price)}\n'
                 f'{prop.url}'
             )
-        elif old_state[prop_id] > prop.price:
-            drop = old_state[prop_id] - prop.price
+        elif old_state[prop_id]['price'] > prop.price:
+            drop = old_state[prop_id]['price'] - prop.price
             messages.append(
                 f'\U0001f4b0 <b>Price Reduced</b>\n'
                 f'{prop.address}{summary}\n'
-                f'{format_price(prop.price)} (was {format_price(old_state[prop_id])}, '
+                f'{format_price(prop.price)} (was {format_price(old_state[prop_id]["price"])}, '
                 f'down {format_price(drop)})\n'
                 f'{prop.url}'
             )
