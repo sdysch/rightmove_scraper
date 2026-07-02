@@ -304,6 +304,12 @@ def main() -> None:
         logger.error('SEARCH_URL environment variable not set')
         return
 
+    if not telegram_token or not telegram_chat_id:
+        logger.warning(
+            'TELEGRAM_TOKEN or TELEGRAM_CHAT_ID not set \u2014 '
+            'notifications and daily digest will be suppressed'
+        )
+
     old_state = load_state()
     current_properties = fetch_properties(search_url)
 
