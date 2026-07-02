@@ -283,10 +283,11 @@ def _build_summary_messages(
         lines = []
         for p, old_price in reduced_properties:
             drop = old_price - p.price
+            pct = f'{drop / old_price * 100:.1f}%' if old_price else '?%'
             lines.append(
                 f'\n\u2022 <b>{p.address}</b>{_prop_tag(p)}\n'
                 f'  {format_price(p.price)} (was {format_price(old_price)}, '
-                f'down {format_price(drop)})\n'
+                f'\u2193 {format_price(drop)}, -{pct})\n'
                 f'  {p.url}'
             )
         messages.extend(_chunk_message(header, lines, max_len))

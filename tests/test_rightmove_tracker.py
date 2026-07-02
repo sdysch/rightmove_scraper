@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 from rightmove_tracker import (
     BASE_URL,
     Property,
+    _build_summary_messages,
     _find_total_results,
     _parse_card,
     fetch_properties,
@@ -369,6 +370,32 @@ class TestSendTelegramMessages:
         mock_post.assert_called_once()
         _, kwargs = mock_post.call_args
         assert kwargs['json']['text'] == 'hello'
+
+
+class TestBuildSummaryMessages:
+    def test_new_properties(self) -> None:
+        props = [Property('1', 'https://rm.co.uk/p/1', '1 New St', 300000, 3, 'Detached')]
+        msgs = _build_summary_messages(props, [])
+        assert 'New Properties (1)' in msgs[0]
+        assert '\u00a3300,000' in msgs[0]
+
+    def test_reduced_price_format(self) -> None:
+        p = Property('1', 'https://rm.co.uk/p/1', '1 Old St', 250000, 2, 'Flat')
+        msgs = _build_summary_messages([], [(p, 300000)])
+        msg = msgs[0]
+        assert 'Price Reductions (1)' in msg
+        assert '\u00a3250,000' in msg
+        assert '\u00a3300,000' in msg
+        assert '\u2193 \u00a350,000' in msg
+        assert '-16.7%' in msg
+
+    def test_reduced_zero_old_price_no_error(self) -> None:
+        p = Property('1', 'https://rm.co.uk/p/1', 'Free', 0, 1, 'Flat')
+        msgs = _build_summary_messages([], [(p, 0)])
+        assert '?%' in msgs[0]
+
+    def test_no_changes_returns_empty(self) -> None:
+        assert _build_summary_messages([], []) == []
 
 
 class TestProperty:
