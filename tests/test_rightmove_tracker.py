@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 from rightmove_tracker import (
     BASE_URL,
     Property,
+    _build_summary_messages,
     _find_total_results,
     _parse_card,
     fetch_properties,
@@ -240,16 +241,46 @@ class TestLoadState:
     def test_returns_prices(self, mock_get: MagicMock) -> None:
         mock_resp = MagicMock()
         mock_resp.json.return_value = [
-            {'property_id': '111', 'price': 250000, 'first_seen_price': 250000},
-            {'property_id': '222', 'price': 300000, 'first_seen_price': 320000},
+            {
+                'property_id': '111',
+                'price': 250000,
+                'first_seen_price': 250000,
+                'address': '1 Main St',
+                'url': 'https://rm.co.uk/p/111',
+                'bedrooms': 3,
+                'property_type': 'Detached',
+            },
+            {
+                'property_id': '222',
+                'price': 300000,
+                'first_seen_price': 320000,
+                'address': '2 High Rd',
+                'url': 'https://rm.co.uk/p/222',
+                'bedrooms': 2,
+                'property_type': 'Flat',
+            },
         ]
         mock_get.return_value = mock_resp
         with patch('rightmove_tracker.SUPABASE_URL', 'https://db.supabase.co'):
             with patch('rightmove_tracker.SUPABASE_SERVICE_KEY', 'test-key'):
                 state = load_state()
         assert state == {
-            '111': {'price': 250000, 'first_seen_price': 250000},
-            '222': {'price': 300000, 'first_seen_price': 320000},
+            '111': {
+                'price': 250000,
+                'first_seen_price': 250000,
+                'address': '1 Main St',
+                'url': 'https://rm.co.uk/p/111',
+                'bedrooms': 3,
+                'property_type': 'Detached',
+            },
+            '222': {
+                'price': 300000,
+                'first_seen_price': 320000,
+                'address': '2 High Rd',
+                'url': 'https://rm.co.uk/p/222',
+                'bedrooms': 2,
+                'property_type': 'Flat',
+            },
         }
 
     @patch('rightmove_tracker.requests.get')
@@ -369,6 +400,47 @@ class TestSendTelegramMessages:
         mock_post.assert_called_once()
         _, kwargs = mock_post.call_args
         assert kwargs['json']['text'] == 'hello'
+
+
+class TestBuildSummaryMessages:
+    def test_new_properties(self) -> None:
+        props = [Property('1', 'https://rm.co.uk/p/1', '1 New St', 300000, 3, 'Detached')]
+        msgs = _build_summary_messages(props, [])
+        assert len(msgs) == 1
+        assert 'New Properties (1)' in msgs[0]
+        assert '1 New St' in msgs[0]
+        assert '\u00a3300,000' in msgs[0]
+
+    def test_reduced_properties(self) -> None:
+        p = Property('1', 'https://rm.co.uk/p/1', '1 Old St', 250000, 2, 'Flat')
+        msgs = _build_summary_messages([], [(p, 300000)])
+        assert len(msgs) == 1
+        assert 'Price Reductions (1)' in msgs[0]
+        assert 'down \u00a350,000' in msgs[0]
+
+    def test_removed_properties(self) -> None:
+        props = [Property('1', 'https://rm.co.uk/p/1', '1 Gone Rd', 150000, 1, 'Flat')]
+        msgs = _build_summary_messages([], [], props)
+        assert len(msgs) == 1
+        assert 'Removed Properties (1)' in msgs[0]
+        assert '1 Gone Rd' in msgs[0]
+
+    def test_combined_messages(self) -> None:
+        new_p = Property('1', 'https://rm.co.uk/p/1', 'New', 200000, 2, 'Flat')
+        red_p = Property('2', 'https://rm.co.uk/p/2', 'Reduced', 150000, 3, 'Semi')
+        rem_p = Property('3', 'https://rm.co.uk/p/3', 'Removed', 300000, 4, 'Detached')
+        msgs = _build_summary_messages([new_p], [(red_p, 200000)], [rem_p])
+        combined = '\n'.join(msgs)
+        assert 'New Properties (1)' in combined
+        assert 'Price Reductions (1)' in combined
+        assert 'Removed Properties (1)' in combined
+
+    def test_no_changes_returns_empty(self) -> None:
+        assert _build_summary_messages([], []) == []
+        assert _build_summary_messages([], [], []) == []
+
+    def test_removed_none_by_default(self) -> None:
+        assert _build_summary_messages([], []) == []
 
 
 class TestProperty:
