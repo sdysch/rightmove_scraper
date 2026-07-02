@@ -1,5 +1,7 @@
 # Rightmove Tracker
 
+[![Last Scraper Run](https://img.shields.io/github/actions/workflow/status/sdysch/rightmove_scraper/scrape.yml?branch=main&label=Last%20run)](https://github.com/sdysch/rightmove_scraper/actions/workflows/scrape.yml)
+
 Monitor Rightmove for new properties and price reductions. Get Telegram notifications when something changes.
 
 ## Table of Contents
