@@ -219,6 +219,70 @@ def format_price(price: int) -> str:
     return f'\u00a3{price:,}'
 
 
+def _prop_tag(prop: Property) -> str:
+    """Return human-readable tag like '3 bed Semi-Detached'."""
+    parts = []
+    if prop.bedrooms:
+        parts.append(f'{prop.bedrooms} bed')
+    if prop.property_type:
+        parts.append(prop.property_type)
+    return f' \u2014 {" ".join(parts)}' if parts else ''
+
+
+def _chunk_message(header: str, lines: list[str], max_len: int) -> list[str]:
+    """Split lines into one or more messages under max_len, each prefixed with header."""
+    chunks = []
+    current = header
+
+    for line in lines:
+        candidate = current + line
+        if len(candidate) > max_len and current != header:
+            chunks.append(current)
+            current = header + line
+        elif len(candidate) > max_len:
+            chunks.append(candidate)
+            current = header
+        else:
+            current = candidate
+
+    if current != header:
+        chunks.append(current)
+
+    return chunks
+
+
+def _build_summary_messages(
+    new_properties: list[Property],
+    reduced_properties: list[tuple[Property, int]],
+) -> list[str]:
+    """Build summary notification messages, splitting if over Telegram's 4096 char limit."""
+    messages = []
+    max_len = 4096
+
+    if new_properties:
+        header = f'\U0001f195 <b>New Properties ({len(new_properties)})</b>'
+        lines = [
+            (f'\n\u2022 <b>{p.address}</b>{_prop_tag(p)}\n  {format_price(p.price)}\n  {p.url}')
+            for p in new_properties
+        ]
+        messages.extend(_chunk_message(header, lines, max_len))
+
+    if reduced_properties:
+        header = f'\U0001f4b0 <b>Price Reductions ({len(reduced_properties)})</b>'
+        lines = []
+        for p, old_price in reduced_properties:
+            drop = old_price - p.price
+            lines.append(
+                f'\n\u2022 <b>{p.address}</b>{_prop_tag(p)}\n'
+                f'  {format_price(p.price)} (was {format_price(old_price)}, '
+                f'down {format_price(drop)})\n'
+                f'  {p.url}'
+            )
+        messages.extend(_chunk_message(header, lines, max_len))
+
+    return messages
+
+
 def main() -> None:
     """Entry point: load state, scrape Rightmove, compare, notify, save."""
     search_url = os.environ.get('SEARCH_URL')
@@ -233,11 +297,12 @@ def main() -> None:
     current_properties = fetch_properties(search_url)
 
     if not current_properties:
-        logger.warning('No properties found — state preserved for next run')
+        logger.warning('No properties found \u2014 state preserved for next run')
         return
 
     is_first_run = not old_state
-    messages: list[str] = []
+    new_properties: list[Property] = []
+    reduced_properties: list[tuple[Property, int]] = []
     new_state: dict[str, dict[str, int]] = {}
 
     for prop_id, prop in current_properties.items():
@@ -251,34 +316,29 @@ def main() -> None:
             'first_seen_price': first_seen_price,
         }
 
-        summary_parts = []
-        if prop.bedrooms:
-            summary_parts.append(f'{prop.bedrooms} bed')
-        if prop.property_type:
-            summary_parts.append(prop.property_type)
-        summary = f' — {" ".join(summary_parts)}' if summary_parts else ''
-
         if prop_id not in old_state:
-            messages.append(
-                f'\U0001f195 <b>New Property</b>\n'
-                f'{prop.address}{summary}\n'
-                f'{format_price(prop.price)}\n'
-                f'{prop.url}'
-            )
+            new_properties.append(prop)
         elif old_state[prop_id]['price'] > prop.price:
-            drop = old_state[prop_id]['price'] - prop.price
-            messages.append(
-                f'\U0001f4b0 <b>Price Reduced</b>\n'
-                f'{prop.address}{summary}\n'
-                f'{format_price(prop.price)} (was {format_price(old_state[prop_id]["price"])}, '
-                f'down {format_price(drop)})\n'
-                f'{prop.url}'
-            )
+            reduced_properties.append((prop, old_state[prop_id]['price']))
+
+    messages = _build_summary_messages(new_properties, reduced_properties)
+    is_last_run = datetime.now(timezone.utc).hour == 19
 
     if is_first_run:
-        logger.info('First run — saving baseline state, no notifications sent')
+        logger.info('First run \u2014 saving baseline state, no notifications sent')
     elif messages and telegram_token and telegram_chat_id:
         send_telegram_messages(telegram_token, telegram_chat_id, messages)
+    elif is_last_run and telegram_token and telegram_chat_id:
+        date_str = datetime.now(timezone.utc).strftime('%d %b %Y')
+        send_telegram_messages(
+            telegram_token,
+            telegram_chat_id,
+            [
+                f'\U0001f4ca <b>Daily Digest \u2014 {date_str}</b>\n'
+                f'No changes detected.\n'
+                f'Total tracked: {len(current_properties)} properties'
+            ],
+        )
 
     save_state(new_state, current_properties)
 
