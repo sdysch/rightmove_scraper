@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 from bs4 import BeautifulSoup
 
 from rightmove_tracker import (
@@ -9,12 +10,48 @@ from rightmove_tracker import (
     _build_summary_messages,
     _find_total_results,
     _parse_card,
+    _request_with_retry,
     fetch_properties,
     format_price,
     load_state,
     save_state,
     send_telegram_messages,
 )
+
+
+class TestRequestWithRetry:
+    @patch('rightmove_tracker.time.sleep')
+    def test_succeeds_on_first_try(self, mock_sleep: MagicMock) -> None:
+        session = MagicMock()
+        resp = MagicMock()
+        session.get.return_value = resp
+        result = _request_with_retry(session, 'https://rm.co.uk/search')
+        assert result == resp
+        session.get.assert_called_once_with('https://rm.co.uk/search')
+        mock_sleep.assert_not_called()
+
+    @patch('rightmove_tracker.time.sleep')
+    def test_retries_then_succeeds(self, mock_sleep: MagicMock) -> None:
+        session = MagicMock()
+        fail_resp = MagicMock()
+        fail_resp.raise_for_status.side_effect = requests.RequestException('timeout')
+        ok_resp = MagicMock()
+        session.get.side_effect = [fail_resp, fail_resp, ok_resp]
+        result = _request_with_retry(session, 'https://rm.co.uk/search')
+        assert result == ok_resp
+        assert session.get.call_count == 3
+        assert mock_sleep.call_count == 2
+
+    @patch('rightmove_tracker.time.sleep')
+    def test_exhausts_retries(self, mock_sleep: MagicMock) -> None:
+        session = MagicMock()
+        fail_resp = MagicMock()
+        fail_resp.raise_for_status.side_effect = requests.RequestException('server error')
+        session.get.return_value = fail_resp
+        with pytest.raises(requests.RequestException):
+            _request_with_retry(session, 'https://rm.co.uk/search', max_retries=2)
+        assert session.get.call_count == 3
+        assert mock_sleep.call_count == 2
 
 
 class TestFormatPrice:
