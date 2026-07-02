@@ -9,6 +9,8 @@ create table if not exists property_state (
   updated_at timestamptz not null default now()
 );
 
+grant select, insert, update on public.property_state to service_role;
+
 alter table property_state enable row level security;
 
 create policy "service_role_all"
