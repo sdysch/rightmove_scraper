@@ -146,11 +146,12 @@ def _supabase_headers() -> dict[str, str]:
     }
 
 
-def load_state() -> dict[str, dict[str, int]]:
+def load_state() -> dict[str, dict]:
     """Load previously seen property data from Supabase.
 
-    Returns a dict mapping property_id to a dict with ``price`` and
-    ``first_seen_price``.
+    Returns a dict mapping property_id to a dict with ``price``,
+    ``first_seen_price``, ``address``, ``url``, ``bedrooms``, and
+    ``property_type``.
     """
     if not _supabase_configured():
         return {}
@@ -158,13 +159,19 @@ def load_state() -> dict[str, dict[str, int]]:
         resp = requests.get(
             f'{SUPABASE_URL}/rest/v1/{STATE_TABLE}',
             headers=_supabase_headers(),
-            params={'select': 'property_id,price,first_seen_price'},
+            params={
+                'select': 'property_id,price,first_seen_price,address,url,bedrooms,property_type'
+            },
         )
         resp.raise_for_status()
         return {
             row['property_id']: {
                 'price': row['price'],
                 'first_seen_price': row['first_seen_price'],
+                'address': row.get('address', ''),
+                'url': row.get('url', ''),
+                'bedrooms': row.get('bedrooms', 0),
+                'property_type': row.get('property_type', ''),
             }
             for row in resp.json()
         }
@@ -265,10 +272,12 @@ def _chunk_message(header: str, lines: list[str], max_len: int) -> list[str]:
 def _build_summary_messages(
     new_properties: list[Property],
     reduced_properties: list[tuple[Property, int]],
+    removed_properties: list[Property] | None = None,
 ) -> list[str]:
     """Build summary notification messages, splitting if over Telegram's 4096 char limit."""
     messages = []
     max_len = 4096
+    removed_properties = removed_properties or []
 
     if new_properties:
         header = f'\U0001f195 <b>New Properties ({len(new_properties)})</b>'
@@ -289,6 +298,14 @@ def _build_summary_messages(
                 f'down {format_price(drop)})\n'
                 f'  {p.url}'
             )
+        messages.extend(_chunk_message(header, lines, max_len))
+
+    if removed_properties:
+        header = f'\U0001f5d1 <b>Removed Properties ({len(removed_properties)})</b>'
+        lines = [
+            (f'\n\u2022 <b>{p.address}</b>{_prop_tag(p)}\n  {format_price(p.price)}\n  {p.url}')
+            for p in removed_properties
+        ]
         messages.extend(_chunk_message(header, lines, max_len))
 
     return messages
@@ -320,6 +337,7 @@ def main() -> None:
     is_first_run = not old_state
     new_properties: list[Property] = []
     reduced_properties: list[tuple[Property, int]] = []
+    removed_properties: list[Property] = []
     new_state: dict[str, dict[str, int]] = {}
 
     for prop_id, prop in current_properties.items():
@@ -338,7 +356,20 @@ def main() -> None:
         elif old_state[prop_id]['price'] > prop.price:
             reduced_properties.append((prop, old_state[prop_id]['price']))
 
-    messages = _build_summary_messages(new_properties, reduced_properties)
+    for prop_id, old_data in old_state.items():
+        if prop_id not in current_properties:
+            removed_properties.append(
+                Property(
+                    prop_id,
+                    old_data.get('url', ''),
+                    old_data.get('address', ''),
+                    old_data['price'],
+                    old_data.get('bedrooms', 0),
+                    old_data.get('property_type', ''),
+                )
+            )
+
+    messages = _build_summary_messages(new_properties, reduced_properties, removed_properties)
     is_last_run = datetime.now(timezone.utc).hour == 19
 
     if is_first_run:
