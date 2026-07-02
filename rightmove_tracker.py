@@ -214,10 +214,15 @@ def save_state(state: dict[str, dict[str, int]], properties: dict[str, Property]
 def send_telegram_messages(token: str, chat_id: str, messages: list[str]) -> None:
     """Send a list of HTML-formatted messages via the Telegram bot API."""
     for msg in messages:
-        requests.post(
-            f'https://api.telegram.org/bot{token}/sendMessage',
-            json={'chat_id': chat_id, 'text': msg, 'parse_mode': 'HTML'},
-        )
+        try:
+            resp = requests.post(
+                f'https://api.telegram.org/bot{token}/sendMessage',
+                json={'chat_id': chat_id, 'text': msg, 'parse_mode': 'HTML'},
+                timeout=15,
+            )
+            resp.raise_for_status()
+        except requests.RequestException:
+            logger.exception('Failed to send Telegram message')
 
 
 def format_price(price: int) -> str:
