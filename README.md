@@ -119,3 +119,4 @@ Subsequent runs compare against Supabase and send Telegram notifications for new
 ├── supabase/migrations/  # Database schema
 └── tests/                # Pytest suite (32 tests)
 ```
+
