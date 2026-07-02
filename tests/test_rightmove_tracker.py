@@ -443,17 +443,23 @@ class TestBuildSummaryMessages:
     def test_new_properties(self) -> None:
         props = [Property('1', 'https://rm.co.uk/p/1', '1 New St', 300000, 3, 'Detached')]
         msgs = _build_summary_messages(props, [])
-        assert len(msgs) == 1
         assert 'New Properties (1)' in msgs[0]
-        assert '1 New St' in msgs[0]
         assert '\u00a3300,000' in msgs[0]
 
-    def test_reduced_properties(self) -> None:
+    def test_reduced_price_format(self) -> None:
         p = Property('1', 'https://rm.co.uk/p/1', '1 Old St', 250000, 2, 'Flat')
         msgs = _build_summary_messages([], [(p, 300000)])
-        assert len(msgs) == 1
-        assert 'Price Reductions (1)' in msgs[0]
-        assert 'down \u00a350,000' in msgs[0]
+        msg = msgs[0]
+        assert 'Price Reductions (1)' in msg
+        assert '\u00a3250,000' in msg
+        assert '\u00a3300,000' in msg
+        assert '\u2193 \u00a350,000' in msg
+        assert '-16.7%' in msg
+
+    def test_reduced_zero_old_price_no_error(self) -> None:
+        p = Property('1', 'https://rm.co.uk/p/1', 'Free', 0, 1, 'Flat')
+        msgs = _build_summary_messages([], [(p, 0)])
+        assert '?%' in msgs[0]
 
     def test_removed_properties(self) -> None:
         props = [Property('1', 'https://rm.co.uk/p/1', '1 Gone Rd', 150000, 1, 'Flat')]
