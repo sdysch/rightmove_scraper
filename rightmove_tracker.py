@@ -122,6 +122,16 @@ def fetch_properties(search_url: str) -> dict[str, Property]:
     return properties
 
 
+def _supabase_configured() -> bool:
+    """Check whether Supabase credentials are present and valid."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return False
+    if not SUPABASE_URL.startswith('https://'):
+        logger.error('SUPABASE_URL must start with https:// (got %r)', SUPABASE_URL)
+        return False
+    return True
+
+
 def _supabase_headers() -> dict[str, str]:
     """Build the authorization headers for Supabase REST API calls."""
     return {
@@ -132,7 +142,7 @@ def _supabase_headers() -> dict[str, str]:
 
 def load_state() -> dict[str, int]:
     """Load previously seen property prices from Supabase."""
-    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+    if not _supabase_configured():
         return {}
     try:
         resp = requests.get(
@@ -149,7 +159,7 @@ def load_state() -> dict[str, int]:
 
 def save_state(state: dict[str, int], properties: dict[str, Property]) -> None:
     """Upsert current property prices and metadata to Supabase."""
-    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+    if not _supabase_configured():
         logger.warning('Supabase not configured, skipping state save')
         return
     now = datetime.now(timezone.utc).isoformat()
@@ -165,17 +175,20 @@ def save_state(state: dict[str, int], properties: dict[str, Property]) -> None:
         }
         for pid, price in state.items()
     ]
-    resp = requests.post(
-        f'{SUPABASE_URL}/rest/v1/{STATE_TABLE}',
-        json=rows,
-        headers={
-            **_supabase_headers(),
-            'Content-Type': 'application/json',
-            'Prefer': 'resolution=merge-duplicates',
-        },
-    )
-    if not resp.ok:
-        logger.error('Failed to save state: %s %s', resp.status_code, resp.text)
+    try:
+        resp = requests.post(
+            f'{SUPABASE_URL}/rest/v1/{STATE_TABLE}',
+            json=rows,
+            headers={
+                **_supabase_headers(),
+                'Content-Type': 'application/json',
+                'Prefer': 'resolution=merge-duplicates',
+            },
+        )
+        if not resp.ok:
+            logger.error('Failed to save state: %s %s', resp.status_code, resp.text)
+    except Exception as e:
+        logger.error('Failed to save state: %s', e)
 
 
 def send_telegram_messages(token: str, chat_id: str, messages: list[str]) -> None:

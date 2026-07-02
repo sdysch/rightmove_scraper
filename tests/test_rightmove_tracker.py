@@ -269,6 +269,12 @@ class TestLoadState:
                 state = load_state()
         assert state == {}
 
+    def test_bad_url_scheme_returns_empty(self) -> None:
+        with patch('rightmove_tracker.SUPABASE_URL', 'my_url'):
+            with patch('rightmove_tracker.SUPABASE_SERVICE_KEY', 'test-key'):
+                state = load_state()
+        assert state == {}
+
 
 class TestSaveState:
     def _make_props(self) -> dict[str, Property]:
@@ -317,6 +323,23 @@ class TestSaveState:
         props = self._make_props()
         with patch('rightmove_tracker.SUPABASE_URL', ''):
             with patch('rightmove_tracker.SUPABASE_SERVICE_KEY', ''):
+                save_state({'111': 250000}, props)
+        assert 'Supabase not configured' in caplog.text
+
+    @patch('rightmove_tracker.requests.post')
+    def test_connection_error(self, mock_post: MagicMock, caplog: pytest.LogCaptureFixture) -> None:
+        mock_post.side_effect = ConnectionError('DNS resolution failed')
+        props = self._make_props()
+        with patch('rightmove_tracker.SUPABASE_URL', 'https://db.supabase.co'):
+            with patch('rightmove_tracker.SUPABASE_SERVICE_KEY', 'test-key'):
+                save_state({'111': 250000}, props)
+        assert 'Failed to save state' in caplog.text
+        assert 'DNS resolution failed' in caplog.text
+
+    def test_bad_url_scheme_skips(self, caplog: pytest.LogCaptureFixture) -> None:
+        props = self._make_props()
+        with patch('rightmove_tracker.SUPABASE_URL', 'my_url'):
+            with patch('rightmove_tracker.SUPABASE_SERVICE_KEY', 'test-key'):
                 save_state({'111': 250000}, props)
         assert 'Supabase not configured' in caplog.text
 
