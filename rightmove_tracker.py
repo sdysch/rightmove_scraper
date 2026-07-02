@@ -16,8 +16,15 @@ STATE_TABLE = 'property_state'
 
 
 class Property:
-    def __init__(self, prop_id: str, url: str, address: str, price: int,
-                 bedrooms: int = 0, property_type: str = '') -> None:
+    def __init__(
+        self,
+        prop_id: str,
+        url: str,
+        address: str,
+        price: int,
+        bedrooms: int = 0,
+        property_type: str = '',
+    ) -> None:
         """A single property listing scraped from Rightmove."""
         self.id = prop_id
         self.url = url
@@ -240,8 +247,7 @@ def main() -> None:
 
     save_state(new_state, current_properties)
 
-    logger.info('Scraped %d properties, %d notifications',
-                len(current_properties), len(messages))
+    logger.info('Scraped %d properties, %d notifications', len(current_properties), len(messages))
 
 
 if __name__ == '__main__':

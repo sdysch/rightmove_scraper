@@ -63,7 +63,7 @@ class TestFindTotalResults:
 
 
 class TestParseCard:
-    CARD_HTML = '''
+    CARD_HTML = """
 <div class="propertyCard-details">
   <a class="propertyCard-link" href="/properties/12345678#/?channel=RES_BUY"></a>
   <div data-testid="property-price">
@@ -80,7 +80,7 @@ class TestParseCard:
     <div class="PropertyInformation_bathContainer__ut8VY">1</div>
   </div>
 </div>
-'''
+"""
 
     def _card(self, html: str = CARD_HTML) -> BeautifulSoup:
         return BeautifulSoup(html, 'html.parser')
@@ -99,7 +99,7 @@ class TestParseCard:
         assert prop.property_type == 'Semi-Detached'
 
     def test_offers_over_price(self) -> None:
-        html = '''
+        html = """
 <div class="propertyCard-details">
   <a class="propertyCard-link" href="/properties/87654321#/?channel=RES_BUY"></a>
   <div data-testid="property-price">
@@ -113,7 +113,7 @@ class TestParseCard:
     <div>4</div>
   </div>
 </div>
-'''
+"""
         soup = BeautifulSoup(html, 'html.parser')
         card = soup.find('div', class_='propertyCard-details')
         assert card is not None
@@ -122,7 +122,7 @@ class TestParseCard:
         assert prop.price == 350000
 
     def test_featured_with_prefixed_text(self) -> None:
-        html = '''
+        html = """
 <div class="propertyCard-details">
   <a class="propertyCard-link" href="/properties/11111111#/?channel=RES_BUY"></a>
   <div data-testid="property-price">
@@ -136,7 +136,7 @@ class TestParseCard:
     <div>4</div>
   </div>
 </div>
-'''
+"""
         soup = BeautifulSoup(html, 'html.parser')
         card = soup.find('div', class_='propertyCard-details')
         assert card is not None
@@ -152,21 +152,21 @@ class TestParseCard:
         assert _parse_card(card) is None
 
     def test_missing_price_returns_none(self) -> None:
-        html = '''
+        html = """
 <div class="propertyCard-details">
   <a class="propertyCard-link" href="/properties/99999999#/"></a>
   <div data-testid="property-price">POA</div>
   <div data-testid="property-address"><address>Nowhere</address></div>
   <div data-testid="property-information"><span>Flat</span><div>1</div></div>
 </div>
-'''
+"""
         soup = BeautifulSoup(html, 'html.parser')
         card = soup.find('div', class_='propertyCard-details')
         assert card is not None
         assert _parse_card(card) is None
 
     def test_missing_bedrooms_defaults_to_zero(self) -> None:
-        html = '''
+        html = """
 <div class="propertyCard-details">
   <a class="propertyCard-link" href="/properties/55555555#/"></a>
   <div data-testid="property-price">£200,000</div>
@@ -175,7 +175,7 @@ class TestParseCard:
     <span>Flat</span>
   </div>
 </div>
-'''
+"""
         soup = BeautifulSoup(html, 'html.parser')
         card = soup.find('div', class_='propertyCard-details')
         assert card is not None
@@ -199,7 +199,7 @@ class TestFetchProperties:
             '<div data-testid="property-address"><address>One Property Road</address></div>'
             '<div data-testid="property-information"><span>Detached</span><div>3</div></div>'
             '</div></div></body></html>'
-        ).encode('utf-8')
+        ).encode()
         mock_session.return_value.get.return_value = mock_resp
         props = fetch_properties('https://rightmove.co.uk/search?foo=bar')
         assert len(props) == 1
@@ -225,11 +225,11 @@ class TestFetchProperties:
     @patch('rightmove_tracker.requests.Session')
     def test_missing_results_section(self, mock_session: MagicMock) -> None:
         mock_resp = MagicMock()
-        mock_resp.content = b'''
+        mock_resp.content = b"""
 <html><body>
   <div class="ResultsCount_resultsCount__Kqeah"><p><span>5</span> results</p></div>
 </body></html>
-'''
+"""
         mock_session.return_value.get.return_value = mock_resp
         props = fetch_properties('https://rightmove.co.uk/search?foo=bar')
         assert props == {}
@@ -298,7 +298,9 @@ class TestSaveState:
         assert 'updated_at' in rows[0]
 
     @patch('rightmove_tracker.requests.post')
-    def test_logs_error_on_failure(self, mock_post: MagicMock, caplog: pytest.LogCaptureFixture) -> None:
+    def test_logs_error_on_failure(
+        self, mock_post: MagicMock, caplog: pytest.LogCaptureFixture
+    ) -> None:
         mock_resp = MagicMock()
         mock_resp.ok = False
         mock_resp.status_code = 500
