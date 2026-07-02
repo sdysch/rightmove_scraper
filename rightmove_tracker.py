@@ -87,6 +87,19 @@ def _parse_card(card: Tag) -> Property | None:
         return None
 
 
+def _parse_results(soup: BeautifulSoup) -> dict[str, Property]:
+    """Extract property cards from a parsed search page into property_id -> Property."""
+    properties: dict[str, Property] = {}
+    results = soup.find(id='l-searchResults')
+    if not results:
+        return properties
+    for card in results.find_all('div', class_='propertyCard-details'):
+        prop = _parse_card(card)
+        if prop:
+            properties[prop.id] = prop
+    return properties
+
+
 def fetch_properties(search_url: str) -> dict[str, Property]:
     """Scrape all pages of a Rightmove search and return property_id -> Property."""
     session = requests.Session()
@@ -103,21 +116,14 @@ def fetch_properties(search_url: str) -> dict[str, Property]:
     if total == 0:
         return {}
 
+    properties = _parse_results(soup)
     pages = math.ceil(total / 24)
-    properties: dict[str, Property] = {}
 
-    for page in range(pages):
+    for page in range(1, pages):
         url = f'{search_url}&index={page * 24}'
         resp = session.get(url)
         soup = BeautifulSoup(resp.content, 'html.parser')
-        results = soup.find(id='l-searchResults')
-        if not results:
-            continue
-        cards = results.find_all('div', class_='propertyCard-details')
-        for card in cards:
-            prop = _parse_card(card)
-            if prop:
-                properties[prop.id] = prop
+        properties.update(_parse_results(soup))
 
     return properties
 
