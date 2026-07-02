@@ -14,6 +14,7 @@ Monitor Rightmove for new properties and price reductions. Get Telegram notifica
   - [4. Set up Supabase](#4-set-up-supabase)
   - [5. Set GitHub Secrets](#5-set-github-secrets)
   - [6. Enable the workflow](#6-enable-the-workflow)
+- [Reliability](#reliability)
 - [What's public vs private](#whats-public-vs-private)
 - [Optional: limit to recent listings](#optional-limit-to-recent-listings)
 - [Local development](#local-development)
@@ -21,7 +22,7 @@ Monitor Rightmove for new properties and price reductions. Get Telegram notifica
 
 ## How it works
 
-1. Runs every hour via GitHub Actions cron
+1. Runs every hour via GitHub Actions cron (but see [reliability note](#reliability) below)
 2. Scrapes your Rightmove search URL for all matching properties
 3. Compares against previous state (stored in Supabase — private)
 4. Sends a Telegram notification for:
@@ -74,6 +75,23 @@ In your forked repo, go to **Settings → Secrets and variables → Actions** an
 
 Go to **Actions** in your repo and enable the workflow. It runs every hour on the hour.
 You can also trigger it manually from the Actions tab with the **Run workflow** button.
+
+## Reliability
+
+GitHub Actions scheduled workflows are not guaranteed to run on time — runs can be delayed, skipped during peak load, or [auto-disabled after 60 days of repo inactivity](https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#scheduled-events).
+
+As a backup, the workflow also listens for `repository_dispatch` and `workflow_dispatch` events, so you can trigger it from an external cron service:
+
+1. Create a [fine-grained PAT](https://github.com/settings/tokens) with `Actions: Write` permission for this repo
+2. Set up a free account on [cron-job.org](https://cron-job.org)
+3. Create a job with:
+   - **URL**: `https://api.github.com/repos/sdysch/rightmove_scraper/dispatches`
+   - **Method**: `POST`
+   - **Headers**: `Authorization: Bearer <your-pat>` and `Content-Type: application/json`
+   - **Body**: `{"event_type": "trigger-scrape"}`
+   - **Schedule**: every 60 minutes
+
+This runs alongside the built-in GitHub cron — if GitHub misses a run, the external trigger catches it on the next cycle. No duplicate runs because the scraper is idempotent.
 
 ## What's public vs private
 
