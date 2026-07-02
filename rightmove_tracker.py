@@ -333,9 +333,6 @@ def main() -> None:
             reduced_properties.append((prop, old_state[prop_id]['price']))
 
     messages = _build_summary_messages(new_properties, reduced_properties)
-    date_str = datetime.now(timezone.utc).strftime('%d %b %Y')
-    print(datetime.now(timezone.utc))
-    print(datetime.now(timezone.utc).hour)
     is_last_run = datetime.now(timezone.utc).hour == 19
 
     if is_first_run:
