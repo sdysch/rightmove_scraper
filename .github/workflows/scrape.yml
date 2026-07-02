@@ -1,0 +1,36 @@
+name: Scrape Rightmove
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          python-version: '3.13'
+
+      - name: Cache state
+        uses: actions/cache@v4
+        with:
+          path: state.json
+          key: rightmove-state-v1
+
+      - run: uv sync
+
+      - name: Run tracker
+        run: uv run python rightmove_tracker.py
+        env:
+          SEARCH_URL: ${{ secrets.SEARCH_URL }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
