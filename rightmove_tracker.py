@@ -244,6 +244,39 @@ def save_state(state: dict[str, dict[str, int]], properties: dict[str, Property]
         logger.error('Failed to save state: %s', e)
 
 
+def save_price_history(price_changes: list[dict], properties: dict[str, Property]) -> None:
+    """Record price changes in the price_history table."""
+    if not _supabase_configured():
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    rows = [
+        {
+            'property_id': c['property_id'],
+            'price': c['new_price'],
+            'previous_price': c['old_price'],
+            'changed_at': now,
+            'address': properties[c['property_id']].address,
+            'url': properties[c['property_id']].url,
+            'bedrooms': properties[c['property_id']].bedrooms,
+            'property_type': properties[c['property_id']].property_type,
+        }
+        for c in price_changes
+    ]
+    try:
+        resp = requests.post(
+            f'{SUPABASE_URL}/rest/v1/price_history',
+            json=rows,
+            headers={
+                **_supabase_headers(),
+                'Content-Type': 'application/json',
+            },
+        )
+        if not resp.ok:
+            logger.error('Failed to save price history: %s %s', resp.status_code, resp.text)
+    except Exception as e:
+        logger.error('Failed to save price history: %s', e)
+
+
 def send_telegram_messages(token: str, chat_id: str, messages: list[str]) -> None:
     """Send a list of HTML-formatted messages via the Telegram bot API."""
     for msg in messages:
@@ -365,11 +398,21 @@ def main() -> None:
     new_properties: list[Property] = []
     reduced_properties: list[tuple[Property, int]] = []
     removed_properties: list[Property] = []
+    price_changes: list[dict] = []
     new_state: dict[str, dict[str, int]] = {}
 
     for prop_id, prop in current_properties.items():
         if prop_id in old_state:
             first_seen_price = old_state[prop_id]['first_seen_price']
+            old_price = old_state[prop_id]['price']
+            if old_price != prop.price:
+                price_changes.append(
+                    {
+                        'property_id': prop_id,
+                        'old_price': old_price,
+                        'new_price': prop.price,
+                    }
+                )
         else:
             first_seen_price = prop.price
 
@@ -405,7 +448,7 @@ def main() -> None:
         send_telegram_messages(telegram_token, telegram_chat_id, messages)
     elif is_last_run and telegram_token and telegram_chat_id:
         date_str = datetime.now(timezone.utc).strftime('%d %b %Y')
-        logging.info('Sending end of day summary digest')
+        logger.info('Sending end of day summary digest')
         send_telegram_messages(
             telegram_token,
             telegram_chat_id,
@@ -417,6 +460,9 @@ def main() -> None:
         )
 
     save_state(new_state, current_properties)
+
+    if price_changes:
+        save_price_history(price_changes, current_properties)
 
     logger.info('Scraped %d properties, %d notifications', len(current_properties), len(messages))
 
