@@ -378,6 +378,26 @@ class TestSaveState:
         assert rows[0]['bedrooms'] == 3
         assert rows[0]['property_type'] == 'Detached'
         assert 'updated_at' in rows[0]
+        assert 'first_seen_at' not in rows[0]
+
+    @patch('rightmove_tracker.requests.post')
+    def test_sets_first_seen_at_for_new_properties(self, mock_post: MagicMock) -> None:
+        mock_post.return_value.ok = True
+        props = self._make_props()
+        state = {
+            '111': {'price': 250000, 'first_seen_price': 250000},
+            '222': {'price': 300000, 'first_seen_price': 320000},
+        }
+        with patch('rightmove_tracker.SUPABASE_URL', 'https://db.supabase.co'):
+            with patch('rightmove_tracker.SUPABASE_SERVICE_KEY', 'test-key'):
+                save_state(state, props, new_ids={'111'})
+
+        mock_post.assert_called_once()
+        args, kwargs = mock_post.call_args
+        rows = kwargs['json']
+        assert rows[0]['property_id'] == '111'
+        assert rows[0]['first_seen_at'] is not None
+        assert 'first_seen_at' not in rows[1]
 
     @patch('rightmove_tracker.requests.post')
     def test_logs_error_on_failure(

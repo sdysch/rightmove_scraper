@@ -206,15 +206,22 @@ def load_state() -> dict[str, dict]:
         return {}
 
 
-def save_state(state: dict[str, dict[str, int]], properties: dict[str, Property]) -> None:
+def save_state(
+    state: dict[str, dict[str, int]],
+    properties: dict[str, Property],
+    new_ids: set[str] | None = None,
+) -> None:
     """Upsert current property data and metadata to Supabase.
 
     *state* maps property_id to a dict with ``price`` and ``first_seen_price``.
+    *new_ids* is the set of property IDs that are first-time inserts.
+    ``first_seen_at`` is only set for new rows so existing rows aren't overwritten.
     """
     if not _supabase_configured():
         logger.warning('Supabase not configured, skipping state save')
         return
     now = datetime.now(timezone.utc).isoformat()
+    new_ids = new_ids or set()
     rows = [
         {
             'property_id': pid,
@@ -225,6 +232,7 @@ def save_state(state: dict[str, dict[str, int]], properties: dict[str, Property]
             'bedrooms': properties[pid].bedrooms,
             'property_type': properties[pid].property_type,
             'updated_at': now,
+            **({'first_seen_at': now} if pid in new_ids else {}),
         }
         for pid, s in state.items()
     ]
@@ -396,6 +404,7 @@ def main() -> None:
 
     is_first_run = not old_state
     new_properties: list[Property] = []
+    new_ids: set[str] = set()
     reduced_properties: list[tuple[Property, int]] = []
     removed_properties: list[Property] = []
     price_changes: list[dict] = []
@@ -423,6 +432,7 @@ def main() -> None:
 
         if prop_id not in old_state:
             new_properties.append(prop)
+            new_ids.add(prop_id)
         elif old_state[prop_id]['price'] > prop.price:
             reduced_properties.append((prop, old_state[prop_id]['price']))
 
@@ -459,7 +469,7 @@ def main() -> None:
             ],
         )
 
-    save_state(new_state, current_properties)
+    save_state(new_state, current_properties, new_ids)
 
     if price_changes:
         save_price_history(price_changes, current_properties)
