@@ -1,3 +1,4 @@
+import argparse
 import logging
 import math
 import os
@@ -371,8 +372,11 @@ def _build_summary_messages(
     return messages
 
 
-def main() -> None:
-    """Entry point: load state, scrape Rightmove, compare, notify, save."""
+def main(digest: bool = False) -> None:
+    """Entry point: load state, scrape Rightmove, compare, notify, save.
+
+    If *digest* is True a daily summary is always sent at the end of the run.
+    """
     search_url = os.environ.get('SEARCH_URL')
     telegram_token = os.environ.get('TELEGRAM_TOKEN')
     telegram_chat_id = os.environ.get('TELEGRAM_CHAT_ID')
@@ -440,36 +444,50 @@ def main() -> None:
             )
 
     messages = _build_summary_messages(new_properties, reduced_properties, removed_properties)
-    is_last_run = datetime.now(timezone.utc).hour == 19
 
     if is_first_run:
         logger.info('First run \u2014 saving baseline state, no notifications sent')
     elif messages and telegram_token and telegram_chat_id:
         send_telegram_messages(telegram_token, telegram_chat_id, messages)
-    elif is_last_run and telegram_token and telegram_chat_id:
-        date_str = datetime.now(timezone.utc).strftime('%d %b %Y')
-        logger.info('Sending end of day summary digest')
-        send_telegram_messages(
-            telegram_token,
-            telegram_chat_id,
-            [
-                f'\U0001f4ca <b>Daily Digest \u2014 {date_str}</b>\n'
-                f'No changes detected.\n'
-                f'Total tracked: {len(current_properties)} properties'
-            ],
-        )
 
     save_state(new_state, current_properties)
 
     if price_changes:
         save_price_history(price_changes, current_properties)
 
+    if digest and telegram_token and telegram_chat_id and not is_first_run:
+        date_str = datetime.now(timezone.utc).strftime('%d %b %Y')
+        if messages:
+            parts = []
+            if new_properties:
+                parts.append(f'New: {len(new_properties)}')
+            if reduced_properties:
+                parts.append(f'Reduced: {len(reduced_properties)}')
+            if removed_properties:
+                parts.append(f'Removed: {len(removed_properties)}')
+            summary_line = '  '.join(parts)
+        else:
+            summary_line = 'No changes detected.'
+        send_telegram_messages(
+            telegram_token,
+            telegram_chat_id,
+            [
+                f'\U0001f4ca <b>Daily Digest \u2014 {date_str}</b>\n'
+                f'{summary_line}\n'
+                f'Total tracked: {len(current_properties)} properties'
+            ],
+        )
+
     logger.info('Scraped %d properties, %d notifications', len(current_properties), len(messages))
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Rightmove property tracker')
+    parser.add_argument('--digest', action='store_true', help='Send daily digest summary')
+    args = parser.parse_args()
+
     logging.basicConfig(
         level=logging.INFO,
         format='%(levelname)s: %(message)s',
     )
-    main()
+    main(digest=args.digest)

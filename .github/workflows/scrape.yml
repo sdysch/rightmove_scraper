@@ -2,7 +2,8 @@ name: Scrape Rightmove
 
 on:
   schedule:
-    - cron: '*/15 7-19 * * *'
+    - cron: '*/15 7-18 * * *'
+    - cron: '0 19 * * *'
   workflow_dispatch:
   repository_dispatch:
     types: [trigger-scrape]
@@ -23,7 +24,18 @@ jobs:
       - run: uv sync
 
       - name: Run tracker
+        if: ${{ github.event.schedule != '0 19 * * *' || github.event_name != 'schedule' }}
         run: uv run python rightmove_tracker.py
+        env:
+          SEARCH_URL: ${{ secrets.SEARCH_URL }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      - name: Run digest
+        if: ${{ github.event.schedule == '0 19 * * *' }}
+        run: uv run python rightmove_tracker.py --digest
         env:
           SEARCH_URL: ${{ secrets.SEARCH_URL }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
