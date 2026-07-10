@@ -187,7 +187,8 @@ def load_state() -> dict[str, dict]:
             f'{SUPABASE_URL}/rest/v1/{STATE_TABLE}',
             headers=_supabase_headers(),
             params={
-                'select': 'property_id,price,first_seen_price,address,url,bedrooms,property_type'
+                'select': 'property_id,price,first_seen_price,address,url,bedrooms,property_type',
+                'removed_at': 'is.null',
             },
         )
         resp.raise_for_status()
@@ -276,6 +277,28 @@ def save_price_history(price_changes: list[dict], properties: dict[str, Property
             logger.error('Failed to save price history: %s %s', resp.status_code, resp.text)
     except Exception as e:
         logger.error('Failed to save price history: %s', e)
+
+
+def archive_properties(property_ids: list[str]) -> None:
+    """Mark properties as removed so they don't re-trigger notifications."""
+    if not property_ids or not _supabase_configured():
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        ids = ','.join(property_ids)
+        resp = requests.patch(
+            f'{SUPABASE_URL}/rest/v1/{STATE_TABLE}',
+            json={'removed_at': now},
+            headers={
+                **_supabase_headers(),
+                'Content-Type': 'application/json',
+            },
+            params={'property_id': f'in.({ids})'},
+        )
+        if not resp.ok:
+            logger.error('Failed to archive properties: %s %s', resp.status_code, resp.text)
+    except Exception as e:
+        logger.error('Failed to archive properties: %s', e)
 
 
 def send_telegram_messages(token: str, chat_id: str, messages: list[str]) -> None:
@@ -451,6 +474,10 @@ def main(digest: bool = False) -> None:
         send_telegram_messages(telegram_token, telegram_chat_id, messages)
 
     save_state(new_state, current_properties)
+
+    removed_ids = [p.id for p in removed_properties]
+    if removed_ids:
+        archive_properties(removed_ids)
 
     if price_changes:
         save_price_history(price_changes, current_properties)

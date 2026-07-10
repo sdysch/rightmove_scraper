@@ -8,6 +8,7 @@ create table if not exists property_state (
   property_type text not null default '',
   first_seen_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
+  removed_at timestamptz default null
 );
 
 grant select, insert, update on public.property_state to service_role;
