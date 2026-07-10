@@ -12,3 +12,5 @@ create table price_history (
 
 create index idx_price_history_property_id on price_history (property_id);
 create index idx_price_history_changed_at on price_history (changed_at);
+
+grant insert on public.price_history to service_role;
