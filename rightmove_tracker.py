@@ -4,6 +4,7 @@ import math
 import os
 import re
 import time
+import urllib.parse
 from datetime import datetime, timezone
 
 import requests
@@ -106,7 +107,7 @@ def _request_with_retry(
     session: requests.Session,
     url: str,
     max_retries: int = 3,
-    base_delay: float = 1.0,
+    base_delay: float = 3.0,
 ) -> requests.Response:
     """GET *url* with exponential backoff retry on failures."""
     for attempt in range(max_retries + 1):
@@ -128,6 +129,16 @@ def _request_with_retry(
                 raise
 
 
+def _set_url_param(url: str, key: str, value: str) -> str:
+    """Replace or add a query parameter in a URL, preserving existing params."""
+    parsed = urllib.parse.urlparse(url)
+    params = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    filtered = [(k, v) for k, v in params if k != key]
+    filtered.append((key, value))
+    new_query = urllib.parse.urlencode(filtered)
+    return urllib.parse.urlunparse(parsed._replace(query=new_query))
+
+
 def fetch_properties(search_url: str) -> dict[str, Property]:
     """Scrape all pages of a Rightmove search and return property_id -> Property."""
     session = requests.Session()
@@ -147,7 +158,7 @@ def fetch_properties(search_url: str) -> dict[str, Property]:
     pages = math.ceil(total / 24)
 
     for page in range(1, pages):
-        url = f'{search_url}&index={page * 24}'
+        url = _set_url_param(search_url, 'index', str(page * 24))
         resp = _request_with_retry(session, url)
         soup = BeautifulSoup(resp.content, 'html.parser')
         properties.update(_parse_results(soup))
@@ -178,20 +189,12 @@ def load_state() -> dict[str, dict]:
 
     Returns a dict mapping property_id to a dict with ``price``,
     ``first_seen_price``, ``address``, ``url``, ``bedrooms``, and
-    ``property_type``.
+    ``property_type``. Excludes properties marked as removed.
     """
     if not _supabase_configured():
         return {}
-    try:
-        resp = requests.get(
-            f'{SUPABASE_URL}/rest/v1/{STATE_TABLE}',
-            headers=_supabase_headers(),
-            params={
-                'select': 'property_id,price,first_seen_price,address,url,bedrooms,property_type',
-                'removed_at': 'is.null',
-            },
-        )
-        resp.raise_for_status()
+
+    def _parse(rows: list[dict]) -> dict[str, dict]:
         return {
             row['property_id']: {
                 'price': row['price'],
@@ -200,9 +203,41 @@ def load_state() -> dict[str, dict]:
                 'url': row.get('url', ''),
                 'bedrooms': row.get('bedrooms', 0),
                 'property_type': row.get('property_type', ''),
+                'updated_at': row.get('updated_at'),
             }
-            for row in resp.json()
+            for row in rows
         }
+
+    try:
+        resp = requests.get(
+            f'{SUPABASE_URL}/rest/v1/{STATE_TABLE}',
+            headers=_supabase_headers(),
+            params={
+                'select': (
+                    'property_id,price,first_seen_price,address,url,'
+                    'bedrooms,property_type,removed_at,updated_at'
+                ),
+                'removed_at': 'is.null',
+            },
+        )
+        resp.raise_for_status()
+        return _parse(resp.json())
+    except Exception:
+        pass
+
+    try:
+        resp = requests.get(
+            f'{SUPABASE_URL}/rest/v1/{STATE_TABLE}',
+            headers=_supabase_headers(),
+            params={
+                'select': (
+                    'property_id,price,first_seen_price,address,url,'
+                    'bedrooms,property_type,updated_at'
+                ),
+            },
+        )
+        resp.raise_for_status()
+        return _parse(resp.json())
     except Exception as e:
         logger.error('Failed to load state: %s', e)
         return {}
@@ -227,6 +262,7 @@ def save_state(state: dict[str, dict[str, int]], properties: dict[str, Property]
             'bedrooms': properties[pid].bedrooms,
             'property_type': properties[pid].property_type,
             'updated_at': now,
+            'removed_at': None,
         }
         for pid, s in state.items()
     ]
@@ -280,12 +316,16 @@ def save_price_history(price_changes: list[dict], properties: dict[str, Property
 
 
 def archive_properties(property_ids: list[str]) -> None:
-    """Mark properties as removed so they don't re-trigger notifications."""
+    """Mark properties as removed so they don't re-trigger notifications.
+
+    Tries to PATCH ``removed_at`` first (requires the ``removed_at`` column).
+    Falls back to DELETE if the column hasn't been added yet.
+    """
     if not property_ids or not _supabase_configured():
         return
     now = datetime.now(timezone.utc).isoformat()
+    ids = ','.join(property_ids)
     try:
-        ids = ','.join(property_ids)
         resp = requests.patch(
             f'{SUPABASE_URL}/rest/v1/{STATE_TABLE}',
             json={'removed_at': now},
@@ -293,6 +333,18 @@ def archive_properties(property_ids: list[str]) -> None:
                 **_supabase_headers(),
                 'Content-Type': 'application/json',
             },
+            params={'property_id': f'in.({ids})'},
+        )
+        if resp.ok:
+            return
+        logger.warning('PATCH archive failed (%s), falling back to DELETE', resp.status_code)
+    except Exception as e:
+        logger.warning('PATCH archive error (%s), falling back to DELETE', e)
+
+    try:
+        resp = requests.delete(
+            f'{SUPABASE_URL}/rest/v1/{STATE_TABLE}',
+            headers=_supabase_headers(),
             params={'property_id': f'in.({ids})'},
         )
         if not resp.ok:

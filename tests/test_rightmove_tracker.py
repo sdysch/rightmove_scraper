@@ -309,6 +309,7 @@ class TestLoadState:
                 'url': 'https://rm.co.uk/p/111',
                 'bedrooms': 3,
                 'property_type': 'Detached',
+                'updated_at': None,
             },
             '222': {
                 'price': 300000,
@@ -317,6 +318,7 @@ class TestLoadState:
                 'url': 'https://rm.co.uk/p/222',
                 'bedrooms': 2,
                 'property_type': 'Flat',
+                'updated_at': None,
             },
         }
 
@@ -378,6 +380,7 @@ class TestSaveState:
         assert rows[0]['bedrooms'] == 3
         assert rows[0]['property_type'] == 'Detached'
         assert 'updated_at' in rows[0]
+        assert rows[0]['removed_at'] is None
 
     @patch('rightmove_tracker.requests.post')
     def test_logs_error_on_failure(
